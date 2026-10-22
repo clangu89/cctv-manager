@@ -15,6 +15,15 @@ const APP_CONFIG = {
   },
   COMMON_PORTS: [554, 80, 8000, 8080, 8899, 37777, 8554],
   BRAND_TEMPLATES: {
+    'notebook_webcam': {
+      name: 'กล้องหน้าโน้ตบุ๊ก (Notebook Webcam)',
+      defaultPort: 0,
+      defaultRtspPort: 0,
+      streamType: 'webcam',
+      buildRtspUrl: () => '',
+      buildHttpUrl: () => 'webcam:local',
+      buildSnapshotUrl: () => ''
+    },
     'hikvision': {
       name: 'Hikvision / Hilook',
       defaultPort: 80,

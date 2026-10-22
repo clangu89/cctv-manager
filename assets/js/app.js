@@ -323,6 +323,7 @@ class CCTVApp {
 
   detectBrandKey(brandText) {
     const text = (brandText || '').toLowerCase();
+    if (text.includes('notebook') || text.includes('webcam') || text.includes('integrated')) return 'notebook_webcam';
     if (text.includes('hikvision') || text.includes('hilook')) return 'hikvision';
     if (text.includes('dahua') || text.includes('imou')) return 'dahua';
     if (text.includes('tapo') || text.includes('tp-link')) return 'tapo';
@@ -387,6 +388,17 @@ class CCTVApp {
     const template = APP_CONFIG.BRAND_TEMPLATES[brand];
     if (!template) return;
 
+    if (brand === 'notebook_webcam') {
+      const ipInput = document.getElementById('camIpInput');
+      if (!ipInput.value || ipInput.value === '192.168.1.100') ipInput.value = '127.0.0.1';
+      document.getElementById('camPortInput').value = '0';
+      document.getElementById('camRtspPortInput').value = '0';
+      document.getElementById('camStreamSelect').value = 'main';
+      document.getElementById('camRtspUrlInput').value = '';
+      document.getElementById('camHttpUrlInput').value = 'webcam:local';
+      return;
+    }
+
     const dummy = {
       ip: document.getElementById('camIpInput').value || '192.168.1.100',
       port: document.getElementById('camPortInput').value || template.defaultPort,
@@ -403,6 +415,112 @@ class CCTVApp {
     if (template.buildRtspUrl) rtspInput.value = template.buildRtspUrl(dummy);
     if (template.buildSnapshotUrl) httpInput.value = template.buildSnapshotUrl(dummy);
     if (template.buildHttpUrl) httpInput.value = template.buildHttpUrl(dummy);
+  }
+
+  // ทดสอบการเชื่อมต่อสตรีมจาก Modal
+  async testCameraConnection() {
+    const brand = document.getElementById('camBrandSelect').value;
+    const rtspUrl = document.getElementById('camRtspUrlInput').value.trim();
+    const resultBox = document.getElementById('camTestResultBox');
+    const btn = document.getElementById('testConnBtn');
+
+    if (!resultBox) return;
+    resultBox.style.display = 'block';
+    resultBox.className = 'mt-3 p-2 small alert alert-info';
+    resultBox.innerHTML = '<i class="fas fa-spinner fa-spin"></i> กำลังทดสอบการเชื่อมต่อ...';
+
+    if (btn) btn.disabled = true;
+
+    try {
+      // 1. ถ้าเป็นกล้องโน้ตบุ๊ก
+      if (brand === 'notebook_webcam') {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+          stream.getTracks().forEach(t => t.stop());
+          resultBox.className = 'mt-3 p-2 small alert alert-success';
+          resultBox.innerHTML = '<i class="fas fa-check-circle"></i> ตรวจพบกล้องหน้าโน้ตบุ๊ก (Integrated Webcam) พร้อมใช้งาน 100%';
+        } catch (e) {
+          resultBox.className = 'mt-3 p-2 small alert alert-danger';
+          resultBox.innerHTML = `<i class="fas fa-times-circle"></i> เบราว์เซอร์ไม่ได้รับอนุญาตให้เข้าถึงกล้องหน้า: ${e.message}`;
+        }
+        return;
+      }
+
+      // 2. ถ้าเป็นกล้อง RTSP/CCTV
+      if (!rtspUrl) {
+        resultBox.className = 'mt-3 p-2 small alert alert-warning';
+        resultBox.innerHTML = 'กรุณาระบุหรือสร้าง RTSP URL ก่อนทำการทดสอบ';
+        return;
+      }
+
+      const bridgeUrl = (window.networkScanner && window.networkScanner.bridgeUrl) || APP_CONFIG.DEFAULT_LOCAL_BRIDGE_URL;
+      const res = await fetch(`${bridgeUrl}/probe-stream?url=${encodeURIComponent(rtspUrl)}`);
+      const data = await res.json();
+
+      if (data.success) {
+        resultBox.className = 'mt-3 p-2 small alert alert-success';
+        resultBox.innerHTML = `<i class="fas fa-check-circle"></i> เชื่อมต่อสำเร็จ! ความละเอียด: ${data.resolution || 'HD'}`;
+      } else {
+        resultBox.className = 'mt-3 p-2 small alert alert-danger';
+        resultBox.innerHTML = `<i class="fas fa-times-circle"></i> <strong>ทดสอบไม่สำเร็จ:</strong> ${data.error || 'ไม่สามารถติดต่อกล้องได้'}`;
+      }
+    } catch (err) {
+      resultBox.className = 'mt-3 p-2 small alert alert-warning';
+      resultBox.innerHTML = `<i class="fas fa-exclamation-triangle"></i> ไม่สามารถเรียก Local Bridge เพื่อทดสอบได้: ${err.message}`;
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  // วินิจฉัยข้อผิดพลาดของช่องที่ภาพไม่ขึ้น
+  async diagnoseSlot(slotIndex) {
+    const camera = window.playerManager.activeSlots[slotIndex];
+    if (!camera) return;
+
+    const box = document.getElementById(`diag-box-${slotIndex}`);
+    if (!box) return;
+
+    box.style.display = 'block';
+    box.innerHTML = '<i class="fas fa-spinner fa-spin"></i> กำลังตรวจสอบสัญญาณเครือข่ายและพอร์ต 554...';
+
+    const bridgeUrl = (window.networkScanner && window.networkScanner.bridgeUrl) || APP_CONFIG.DEFAULT_LOCAL_BRIDGE_URL;
+    try {
+      if (!camera.rtspUrl) {
+        box.innerHTML = '⚠️ กล้องนี้ไม่มี RTSP URL กรุณากดปุ่ม "แก้ไข IP" เพื่อกรอก URL';
+        return;
+      }
+
+      const res = await fetch(`${bridgeUrl}/probe-stream?url=${encodeURIComponent(camera.rtspUrl)}`);
+      const data = await res.json();
+
+      if (data.success) {
+        box.className = 'small alert alert-success p-2 mb-2 text-left';
+        box.innerHTML = `<strong>ผลการตรวจ:</strong> กล้องส่งสัญญาณปกติ (${data.resolution}) กำลังรีเฟรชช่อง...`;
+        setTimeout(() => window.playerManager.renderSlot(slotIndex), 1000);
+      } else {
+        box.className = 'small alert alert-danger p-2 mb-2 text-left';
+        box.innerHTML = `<strong>สาเหตุ:</strong> ${data.error}<br><span class="text-warning">👉 หาก IP นี้คือคอมพิวเตอร์ของคุณเอง ให้กดปุ่ม <strong>"สลับเป็นกล้องโน้ตบุ๊ก"</strong> ด้านล่าง</span>`;
+      }
+    } catch (e) {
+      box.className = 'small alert alert-warning p-2 mb-2 text-left';
+      box.innerHTML = `ไม่สามารถเชื่อมต่อ Local Bridge ได้: ${e.message}`;
+    }
+  }
+
+  // สลับโปรไฟล์เป็นกล้องหน้าโน้ตบุ๊กทันที
+  async switchToWebcam(cameraId, slotIndex) {
+    const cam = this.cameras.find(c => c.id === cameraId) || { id: cameraId };
+    cam.name = 'กล้องหน้าโน้ตบุ๊ก';
+    cam.brand = 'กล้องหน้าโน้ตบุ๊ก (Notebook Webcam)';
+    cam.streamType = 'webcam';
+    cam.httpUrl = 'webcam:local';
+    cam.rtspUrl = '';
+    cam.ip = '127.0.0.1';
+
+    await window.gasApi.saveCamera(cam);
+    await this.loadCameras();
+    window.playerManager.assignCameraToSlot(slotIndex, cam);
+    this.showToast('สลับโปรไฟล์เป็นกล้องหน้าโน้ตบุ๊กเรียบร้อยแล้ว ภาพสดพร้อมทำงานค่ะ', 'success');
   }
 
   async saveCameraFromModal() {

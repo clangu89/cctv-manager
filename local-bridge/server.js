@@ -5,7 +5,6 @@
  */
 
 const http = require('http');
-const url = require('url');
 const net = require('net');
 const dgram = require('dgram');
 const os = require('os');
@@ -194,6 +193,75 @@ function probeOnvif(timeoutMs = 2500) {
   });
 }
 
+// ค้นหากล้อง DirectShow (Webcam) ในเครื่อง
+function getAvailableWebcams() {
+  return new Promise((resolve) => {
+    if (os.platform() !== 'win32' || !hasFfmpeg) {
+      return resolve([]);
+    }
+    exec('ffmpeg -list_devices true -f dshow -i dummy 2>&1', { timeout: 3500 }, (err, stdout, stderr) => {
+      const output = (stdout || '') + (stderr || '');
+      const devices = [];
+      const regex = /"([^"]+)"\s+\(video\)/g;
+      let match;
+      while ((match = regex.exec(output)) !== null) {
+        if (!devices.includes(match[1])) {
+          devices.push(match[1]);
+        }
+      }
+      resolve(devices);
+    });
+  });
+}
+
+// ทดสอบความพร้อมของสตรีม RTSP/HTTP
+function probeStreamConnection(streamUrl, timeoutMs = 4000) {
+  return new Promise((resolve) => {
+    if (!hasFfmpeg) {
+      return resolve({ success: false, error: 'ไม่พบ FFmpeg ในระบบ' });
+    }
+
+    const args = streamUrl.startsWith('rtsp')
+      ? ['-rtsp_transport', 'tcp', '-i', streamUrl, '-t', '2', '-frames:v', '1', '-f', 'null', '-']
+      : ['-i', streamUrl, '-t', '2', '-frames:v', '1', '-f', 'null', '-'];
+
+    const child = spawn('ffmpeg', args);
+    let stderr = '';
+    const timer = setTimeout(() => {
+      try { child.kill('SIGKILL'); } catch (e) {}
+      resolve({ success: false, error: 'การเชื่อมต่อหมดเวลา (Timeout 4s) ตรวจสอบว่า IP และ Port 554 ถูกต้อง' });
+    }, timeoutMs);
+
+    child.stderr.on('data', (d) => {
+      stderr += d.toString();
+    });
+
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (stderr.includes('Video:') || code === 0) {
+        const resMatch = stderr.match(/([0-9]{3,4}x[0-9]{3,4})/);
+        resolve({
+          success: true,
+          resolution: resMatch ? resMatch[1] : 'Unknown',
+          message: 'เชื่อมต่อและดึงสัญญาณภาพสำเร็จ'
+        });
+      } else {
+        let cleanError = 'ไม่สามารถเชื่อมต่อสัญญาณภาพได้';
+        if (stderr.includes('Connection refused')) {
+          cleanError = 'Connection refused: ปลายทางไม่ได้เปิดพอร์ต RTSP หรือ IP ไม่ถูกต้อง';
+        } else if (stderr.includes('401 Unauthorized') || stderr.includes('Authentication failed')) {
+          cleanError = '401 Unauthorized: ชื่อผู้ใช้หรือรหัสผ่านของกล้องไม่ถูกต้อง';
+        } else if (stderr.includes('404 Not Found') || stderr.includes('Invalid data')) {
+          cleanError = 'Stream path ไม่ถูกต้องสำหรับยี่ห้อกล้องนี้';
+        } else if (stderr.includes('No route to host') || stderr.includes('Network is unreachable')) {
+          cleanError = 'ไม่พบอุปกรณ์ที่ IP นี้ในวงแลน';
+        }
+        resolve({ success: false, error: cleanError, raw: stderr.slice(-300) });
+      }
+    });
+  });
+}
+
 // สร้าง HTTP Server
 const server = http.createServer(async (req, res) => {
   setCorsHeaders(req, res);
@@ -213,11 +281,33 @@ const server = http.createServer(async (req, res) => {
     res.end(JSON.stringify({
       status: 'ok',
       service: 'CCTV Manager Local Bridge',
-      version: '1.0.0',
+      version: '1.1.0',
       platform: os.platform(),
       hasFfmpeg: hasFfmpeg,
       time: new Date().toISOString()
     }));
+    return;
+  }
+
+  // Endpoint: รายชื่อกล้องเว็บแคมในเครื่อง
+  if (pathname === '/webcams') {
+    const webcams = await getAvailableWebcams();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'success', webcams: webcams }));
+    return;
+  }
+
+  // Endpoint: ทดสอบการเชื่อมต่อสตรีม
+  if (pathname === '/probe-stream') {
+    const testUrl = parsedUrl.searchParams.get('url');
+    if (!testUrl) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: 'Missing ?url= parameter' }));
+      return;
+    }
+    const result = await probeStreamConnection(testUrl);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(result));
     return;
   }
 
@@ -299,18 +389,21 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // Endpoint: แปลงสัญญาณ RTSP เป็น MJPEG Stream
+  // Endpoint: แปลงสัญญาณ RTSP / Webcam เป็น MJPEG Stream (Intact Frame Assembly)
   if (pathname === '/stream.mjpeg') {
+    const isWebcam = parsedUrl.searchParams.get('type') === 'webcam';
+    const deviceName = parsedUrl.searchParams.get('device') || 'Integrated Camera';
     const rtspUrl = parsedUrl.searchParams.get('rtsp');
-    if (!rtspUrl) {
-      res.writeHead(400, { 'Content-Type': 'text/plain' });
-      res.end('Missing ?rtsp= URL');
+
+    if (!isWebcam && !rtspUrl) {
+      res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Missing ?rtsp= URL or ?type=webcam');
       return;
     }
 
     if (!hasFfmpeg) {
       res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' });
-      res.end('เครื่องนี้ยังไม่ได้ติดตั้ง FFmpeg เพื่อแปลง RTSP เป็น MJPEG กรุณาติดตั้ง FFmpeg ในระบบ หรือเปิดสตรีมผ่านโปรแกรมภายนอก');
+      res.end('เครื่องนี้ยังไม่ได้ติดตั้ง FFmpeg เพื่อแปลง RTSP เป็น MJPEG');
       return;
     }
 
@@ -322,31 +415,79 @@ const server = http.createServer(async (req, res) => {
       'Pragma': 'no-cache'
     });
 
-    const ffmpegArgs = [
-      '-rtsp_transport', 'tcp',
-      '-i', rtspUrl,
-      '-an',
-      '-q:v', '4',
-      '-r', '15',
-      '-f', 'mjpeg',
-      '-'
-    ];
+    let ffmpegArgs = [];
+    if (isWebcam) {
+      ffmpegArgs = [
+        '-f', 'dshow',
+        '-i', `video=${deviceName}`,
+        '-an',
+        '-q:v', '3',
+        '-r', '20',
+        '-f', 'mjpeg',
+        '-'
+      ];
+    } else {
+      ffmpegArgs = [
+        '-rtsp_transport', 'tcp',
+        '-i', rtspUrl,
+        '-an',
+        '-q:v', '4',
+        '-r', '15',
+        '-f', 'mjpeg',
+        '-'
+      ];
+    }
 
     const child = spawn('ffmpeg', ffmpegArgs);
+    let buffer = Buffer.alloc(0);
+    let frameSent = false;
+    let clientDisconnected = false;
 
+    // Intact JPEG Frame Parser (ค้นหา SOI 0xFF,0xD8 และ EOI 0xFF,0xD9)
     child.stdout.on('data', (chunk) => {
-      res.write(`--${boundary}\r\nContent-Type: image/jpeg\r\nContent-Length: ${chunk.length}\r\n\r\n`);
-      res.write(chunk);
-      res.write('\r\n');
+      if (clientDisconnected) return;
+      buffer = Buffer.concat([buffer, chunk]);
+
+      while (true) {
+        const soi = buffer.indexOf(Buffer.from([0xFF, 0xD8]));
+        if (soi === -1) {
+          buffer = Buffer.alloc(0);
+          break;
+        }
+
+        const eoi = buffer.indexOf(Buffer.from([0xFF, 0xD9]), soi + 2);
+        if (eoi === -1) {
+          if (soi > 0) {
+            buffer = buffer.slice(soi);
+          }
+          break;
+        }
+
+        const jpegFrame = buffer.slice(soi, eoi + 2);
+        buffer = buffer.slice(eoi + 2);
+        frameSent = true;
+
+        try {
+          res.write(`--${boundary}\r\nContent-Type: image/jpeg\r\nContent-Length: ${jpegFrame.length}\r\n\r\n`);
+          res.write(jpegFrame);
+          res.write('\r\n');
+        } catch (e) {
+          clientDisconnected = true;
+          break;
+        }
+      }
     });
 
     child.stderr.on('data', () => {});
 
     child.on('close', () => {
-      res.end();
+      if (!res.writableEnded) {
+        try { res.end(); } catch (e) {}
+      }
     });
 
     req.on('close', () => {
+      clientDisconnected = true;
       try {
         child.kill('SIGKILL');
       } catch (e) {}
@@ -356,17 +497,16 @@ const server = http.createServer(async (req, res) => {
 
   // Endpoint: ดึงภาพ Snapshot 1 เฟรมจาก RTSP หรือ HTTP
   if (pathname === '/snapshot') {
+    const isWebcam = parsedUrl.searchParams.get('type') === 'webcam';
+    const deviceName = parsedUrl.searchParams.get('device') || 'Integrated Camera';
     const rtspUrl = parsedUrl.searchParams.get('rtsp');
-    if (rtspUrl && hasFfmpeg) {
+
+    if ((isWebcam || rtspUrl) && hasFfmpeg) {
       res.writeHead(200, { 'Content-Type': 'image/jpeg' });
-      const ffmpegArgs = [
-        '-rtsp_transport', 'tcp',
-        '-i', rtspUrl,
-        '-frames:v', '1',
-        '-q:v', '2',
-        '-f', 'image2',
-        '-'
-      ];
+      const ffmpegArgs = isWebcam
+        ? ['-f', 'dshow', '-i', `video=${deviceName}`, '-frames:v', '1', '-q:v', '2', '-f', 'image2', '-']
+        : ['-rtsp_transport', 'tcp', '-i', rtspUrl, '-frames:v', '1', '-q:v', '2', '-f', 'image2', '-'];
+
       const child = spawn('ffmpeg', ffmpegArgs);
       child.stdout.pipe(res);
       child.on('error', () => {
@@ -387,8 +527,8 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log('====================================================');
-  console.log(` CCTV Manager Local Bridge กำลังทำงานที่:`);
+  console.log(` CCTV Manager Local Bridge v1.1 กำลังทำงานที่:`);
   console.log(` http://localhost:${PORT}`);
-  console.log(` พร้อมรับคำสั่งสแกนเครือข่ายและแปลงสตรีม RTSP จาก GitHub Pages`);
+  console.log(` พร้อมรับคำสั่งสแกนเครือข่าย, สตรีมกล้อง RTSP และกล้องโน้ตบุ๊ก`);
   console.log('====================================================');
 });
