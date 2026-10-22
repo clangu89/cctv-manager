@@ -1,0 +1,10 @@
+{
+  "name": "cctv-local-bridge",
+  "version": "1.0.0",
+  "description": "Local CCTV Network Scanner and RTSP Stream Bridge for CCTV Manager",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {}
+}

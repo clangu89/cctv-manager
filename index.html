@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CCTV Manager - ระบบจัดการและเปิดดูกล้องวงจรปิดในวงแลน</title>
+  
+  <!-- CSS Dependencies -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+
+  <!-- Top Navigation Bar -->
+  <nav class="navbar navbar-expand-lg navbar-dark navbar-custom">
+    <div class="brand-title">
+      <i class="fas fa-video"></i>
+      <span>CCTV Manager</span>
+      <span class="badge badge-primary ml-2" style="font-size: 0.68rem;">v1.0</span>
+    </div>
+
+    <div class="ml-auto d-flex align-items-center">
+      <!-- Status Badges -->
+      <span id="gasStatusBadge" class="badge badge-secondary mr-2" title="สถานะ Google Sheets Database">
+        <i class="fas fa-spinner fa-spin"></i> Checking Database...
+      </span>
+      <span id="bridgeStatusBadge" class="badge badge-secondary mr-3" title="สถานะ Local CCTV Bridge">
+        <i class="fas fa-spinner fa-spin"></i> Checking Bridge...
+      </span>
+
+      <!-- Matrix Layout Switcher -->
+      <div class="btn-group btn-group-sm mr-2" role="group">
+        <button type="button" class="btn btn-outline-secondary" onclick="playerManager.setLayout('1x1')" title="ดูจอเดี่ยว 1x1">
+          <i class="fas fa-square"></i> 1x1
+        </button>
+        <button type="button" class="btn btn-outline-secondary" onclick="playerManager.setLayout('2x2')" title="ดู 4 จอ 2x2">
+          <i class="fas fa-th-large"></i> 2x2
+        </button>
+        <button type="button" class="btn btn-outline-secondary" onclick="playerManager.setLayout('3x3')" title="ดู 9 จอ 3x3">
+          <i class="fas fa-th"></i> 3x3
+        </button>
+      </div>
+
+      <!-- Settings Button -->
+      <button class="btn btn-sm btn-outline-light" onclick="app.openSettingsModal()" title="ตั้งค่าระบบ">
+        <i class="fas fa-cog"></i>
+      </button>
+    </div>
+  </nav>
+
+  <!-- App Main Layout -->
+  <div class="app-container">
+    
+    <!-- Sidebar: Saved Cameras -->
+    <aside class="sidebar p-3">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h6 class="mb-0 font-weight-bold">
+          <i class="fas fa-list-ul text-info"></i> โปรไฟล์กล้อง (<span id="totalCamerasCount">0</span>)
+        </h6>
+        <button class="btn btn-xs btn-primary" onclick="app.openAddCameraModal()">
+          <i class="fas fa-plus"></i> เพิ่มกล้อง
+        </button>
+      </div>
+
+      <!-- Search Box -->
+      <div class="input-group input-group-sm mb-2">
+        <div class="input-group-prepend">
+          <span class="input-group-text bg-dark border-secondary text-muted"><i class="fas fa-search"></i></span>
+        </div>
+        <input type="text" class="form-control form-control-sm" id="searchCameraInput" placeholder="ค้นหาชื่อ, IP, กลุ่ม..." oninput="app.searchTerm = this.value; app.renderCameraList();">
+      </div>
+
+      <!-- Filter Tabs -->
+      <div class="btn-group btn-group-toggle btn-group-sm w-100 mb-3" data-toggle="buttons">
+        <label class="btn btn-outline-secondary active btn-sm" onclick="app.currentFilter = 'all'; app.renderCameraList();">
+          <input type="radio" name="filter" checked> ทั้งหมด
+        </label>
+        <label class="btn btn-outline-secondary btn-sm" onclick="app.currentFilter = 'favorite'; app.renderCameraList();">
+          <input type="radio" name="filter"><i class="fas fa-star text-warning"></i> รายการโปรด (<span id="favCamerasCount">0</span>)
+        </label>
+      </div>
+
+      <!-- Camera Cards Container -->
+      <div class="flex-grow-1 overflow-auto pr-1" id="cameraListContainer">
+        <div class="text-center text-muted p-3">กำลังโหลดรายการกล้อง...</div>
+      </div>
+    </aside>
+
+    <!-- Main Workspace -->
+    <main class="main-content">
+      
+      <!-- Bridge Alert Banner (แสดงเมื่อยังไม่ได้เปิด Local Bridge) -->
+      <div id="bridgeBanner" class="bridge-alert-banner" style="display: none;">
+        <div>
+          <i class="fas fa-info-circle text-warning mr-1"></i>
+          <strong>คำแนะนำสำหรับการดูกล้อง RTSP:</strong> กล้องวงจรปิด Hikvision, Dahua, Tapo (RTSP) แนะนำให้เปิดใช้งาน <code>local-bridge/start-bridge.bat</code> บนคอมพิวเตอร์ เพื่อให้ระบบแปลงภาพสดมาเปิดบนเว็บได้โดยตรง
+        </div>
+        <button class="btn btn-xs btn-outline-warning ml-2" onclick="app.checkBridgeStatus()">
+          <i class="fas fa-sync"></i> ตรวจสอบอีกครั้ง
+        </button>
+      </div>
+
+      <!-- LAN Camera Scanner Accordion -->
+      <div class="scanner-card">
+        <div class="d-flex justify-content-between align-items-center" style="cursor: pointer;" data-toggle="collapse" data-target="#scannerCollapse">
+          <h6 class="mb-0 font-weight-bold">
+            <i class="fas fa-satellite-dish text-primary mr-1"></i> ระบบค้นหากล้องในวงแลน (LAN Camera Discovery)
+          </h6>
+          <i class="fas fa-chevron-down text-muted"></i>
+        </div>
+
+        <div class="collapse mt-3" id="scannerCollapse">
+          <div class="row">
+            <div class="col-md-3 col-sm-6 mb-2">
+              <label class="small text-muted mb-1">วงเครือข่าย Subnet:</label>
+              <input type="text" class="form-control form-control-sm" id="scanSubnet" value="192.168.1" placeholder="192.168.1">
+            </div>
+            <div class="col-md-2 col-sm-3 mb-2">
+              <label class="small text-muted mb-1">IP เริ่มต้น:</label>
+              <input type="number" class="form-control form-control-sm" id="scanStart" value="1" min="1" max="254">
+            </div>
+            <div class="col-md-2 col-sm-3 mb-2">
+              <label class="small text-muted mb-1">IP สิ้นสุด:</label>
+              <input type="number" class="form-control form-control-sm" id="scanEnd" value="254" min="1" max="254">
+            </div>
+            <div class="col-md-3 col-sm-6 mb-2">
+              <label class="small text-muted mb-1">โหมดการสแกน:</label>
+              <select class="form-control form-control-sm" id="scanMode">
+                <option value="auto">สแกนอัตโนมัติ (Bridge / Browser)</option>
+                <option value="bridge">Deep CCTV Scan (ผ่าน Local Bridge)</option>
+                <option value="browser">Browser Fast Sweep (ผ่านเว็บโดยตรง)</option>
+              </select>
+            </div>
+            <div class="col-md-2 col-sm-6 mb-2 d-flex align-items-end">
+              <button class="btn btn-sm btn-primary btn-block" id="startScanBtn" onclick="app.startScan()">
+                <i class="fas fa-search"></i> เริ่มสแกน
+              </button>
+              <button class="btn btn-sm btn-danger btn-block mt-0" id="stopScanBtn" style="display: none;" onclick="app.stopScan()">
+                <i class="fas fa-stop"></i> หยุด
+              </button>
+            </div>
+          </div>
+
+          <!-- Progress Bar -->
+          <div class="progress mt-2 mb-2" style="height: 6px;">
+            <div id="scanProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-success" role="progressbar" style="width: 0%"></div>
+          </div>
+          <div class="small text-muted mb-3" id="scanProgressStatus">พร้อมสำหรับการสแกน</div>
+
+          <!-- Scan Results -->
+          <div id="scanResultsContainer"></div>
+        </div>
+      </div>
+
+      <!-- Live Camera Matrix Viewer -->
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <h6 class="mb-0 font-weight-bold">
+          <i class="fas fa-th-large text-success mr-1"></i> จอภาพสด (Live Camera Matrix)
+        </h6>
+        <div>
+          <button class="btn btn-xs btn-outline-danger" onclick="playerManager.stopAll(); playerManager.renderMatrix();">
+            <i class="fas fa-power-off"></i> ปิดสตรีมทั้งหมด
+          </button>
+        </div>
+      </div>
+
+      <!-- Grid Container -->
+      <div id="cameraGrid" class="camera-grid layout-2x2"></div>
+    </main>
+  </div>
+
+  <!-- Modal: Add / Edit Camera Profile -->
+  <div class="modal fade" id="cameraModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="cameraModalTitle">เพิ่มโปรไฟล์กล้องใหม่</h5>
+          <button type="button" class="close text-light" data-dismiss="modal">&times;</button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="cameraIdInput">
+          
+          <div class="row">
+            <div class="col-md-6 mb-3">
+              <label class="small text-muted font-weight-bold">ชื่อกล้อง / ตำแหน่ง:</label>
+              <input type="text" class="form-control form-control-sm" id="camNameInput" placeholder="เช่น กล้องหน้าบ้าน, โกดัง 1" required>
+            </div>
+            <div class="col-md-6 mb-3">
+              <label class="small text-muted font-weight-bold">ยี่ห้อกล้อง (CCTV Brand):</label>
+              <select class="form-control form-control-sm" id="camBrandSelect">
+                <option value="hikvision">Hikvision / Hilook</option>
+                <option value="dahua">Dahua / IMOU</option>
+                <option value="tapo">TP-Link Tapo</option>
+                <option value="uniview">Uniview (UNV)</option>
+                <option value="esp32">ESP32-CAM</option>
+                <option value="generic_rtsp">Generic RTSP Camera</option>
+                <option value="custom">Custom / กำหนดเอง</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="col-md-4 mb-3">
+              <label class="small text-muted font-weight-bold">IP Address:</label>
+              <input type="text" class="form-control form-control-sm" id="camIpInput" placeholder="192.168.1.100" required>
+            </div>
+            <div class="col-md-2 col-6 mb-3">
+              <label class="small text-muted font-weight-bold">HTTP Port:</label>
+              <input type="number" class="form-control form-control-sm" id="camPortInput" value="80">
+            </div>
+            <div class="col-md-2 col-6 mb-3">
+              <label class="small text-muted font-weight-bold">RTSP Port:</label>
+              <input type="number" class="form-control form-control-sm" id="camRtspPortInput" value="554">
+            </div>
+            <div class="col-md-2 col-6 mb-3">
+              <label class="small text-muted font-weight-bold">Channel:</label>
+              <input type="number" class="form-control form-control-sm" id="camChannelInput" value="1" min="1">
+            </div>
+            <div class="col-md-2 col-6 mb-3">
+              <label class="small text-muted font-weight-bold">สตรีม:</label>
+              <select class="form-control form-control-sm" id="camStreamSelect">
+                <option value="main">Main (HD)</option>
+                <option value="sub">Sub (SD)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="col-md-4 mb-3">
+              <label class="small text-muted font-weight-bold">Username กล้อง:</label>
+              <input type="text" class="form-control form-control-sm" id="camUserInput" value="admin">
+            </div>
+            <div class="col-md-4 mb-3">
+              <label class="small text-muted font-weight-bold">Password กล้อง:</label>
+              <input type="password" class="form-control form-control-sm" id="camPassInput" placeholder="รหัสผ่านของกล้อง">
+            </div>
+            <div class="col-md-4 mb-3">
+              <label class="small text-muted font-weight-bold">หมวดหมู่ / กลุ่ม:</label>
+              <input type="text" class="form-control form-control-sm" id="camGroupInput" value="Default" placeholder="เช่น หน้าบ้าน, ภายใน">
+            </div>
+          </div>
+
+          <hr class="border-secondary">
+
+          <div class="form-group mb-2">
+            <label class="small text-muted font-weight-bold">RTSP Stream URL (สร้างให้อัตโนมัติตามยี่ห้อ):</label>
+            <input type="text" class="form-control form-control-sm" id="camRtspUrlInput" placeholder="rtsp://admin:pass@192.168.1.100:554/Streaming/Channels/101">
+          </div>
+
+          <div class="form-group mb-0">
+            <label class="small text-muted font-weight-bold">HTTP Snapshot / MJPEG URL:</label>
+            <input type="text" class="form-control form-control-sm" id="camHttpUrlInput" placeholder="http://192.168.1.100/ISAPI/Streaming/channels/101/picture">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-sm btn-secondary" data-dismiss="modal">ยกเลิก</button>
+          <button type="button" class="btn btn-sm btn-success" onclick="app.saveCameraFromModal()">
+            <i class="fas fa-save"></i> บันทึกโปรไฟล์ลง Google Sheets
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Settings (Google Apps Script & Local Bridge) -->
+  <div class="modal fade" id="settingsModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="fas fa-cog"></i> ตั้งค่าระบบ (Settings)</h5>
+          <button type="button" class="close text-light" data-dismiss="modal">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="small text-muted font-weight-bold">Google Apps Script Web App URL:</label>
+            <input type="text" class="form-control form-control-sm" id="settingsGasUrlInput" placeholder="https://script.google.com/macros/s/.../exec">
+            <small class="form-text text-muted">URL ของ API ที่สร้างจาก Google Apps Script สำหรับบันทึกข้อมูลลง Google Sheets</small>
+          </div>
+          <div class="form-group">
+            <label class="small text-muted font-weight-bold">Local Bridge URL (รันในเครื่อง):</label>
+            <input type="text" class="form-control form-control-sm" id="settingsBridgeUrlInput" placeholder="http://localhost:3880">
+            <small class="form-text text-muted">พอร์ตเริ่มต้นคือ <code>http://localhost:3880</code> สำหรับสแกนพอร์ต 554 และแปลง RTSP</small>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-sm btn-secondary" data-dismiss="modal">ปิด</button>
+          <button type="button" class="btn btn-sm btn-primary" onclick="app.saveSettings()">บันทึกการตั้งค่า</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Select Camera for Slot -->
+  <div class="modal fade" id="selectCameraModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">เลือกกล้องมาเปิดในช่องนี้</h5>
+          <button type="button" class="close text-light" data-dismiss="modal">&times;</button>
+        </div>
+        <div class="modal-body p-0">
+          <div class="list-group list-group-flush" id="selectCameraModalList"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div style="position: fixed; bottom: 20px; right: 20px; z-index: 9999;">
+    <div id="appToast" class="toast bg-dark text-light border-secondary" role="alert" aria-live="assertive" aria-atomic="true">
+      <div class="toast-header bg-secondary text-light">
+        <i class="fas fa-info-circle mr-2 text-info"></i>
+        <strong class="mr-auto">CCTV Manager</strong>
+        <small>ทันที</small>
+        <button type="button" class="ml-2 mb-1 close text-light" data-dismiss="toast">&times;</button>
+      </div>
+      <div class="toast-body" id="toastBody"></div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <script src="assets/js/config.js"></script>
+  <script src="assets/js/api.js"></script>
+  <script src="assets/js/scanner.js"></script>
+  <script src="assets/js/player.js"></script>
+  <script src="assets/js/app.js"></script>
+</body>
+</html>

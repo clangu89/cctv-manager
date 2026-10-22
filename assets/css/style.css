@@ -1,0 +1,325 @@
+/* CCTV Manager - Modern Dark Control Room Theme */
+
+:root {
+  --bg-primary: #0f141c;
+  --bg-secondary: #161d27;
+  --bg-card: #1c2533;
+  --border-color: #273447;
+  --accent-blue: #0084ff;
+  --accent-cyan: #00d2ff;
+  --accent-green: #00e676;
+  --accent-orange: #ff9100;
+  --accent-red: #ff3d71;
+  --text-main: #f0f4f8;
+  --text-muted: #8b9bb4;
+}
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-main);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  overflow-x: hidden;
+  margin: 0;
+  padding: 0;
+}
+
+/* Navbar */
+.navbar-custom {
+  background: linear-gradient(180deg, #182230 0%, #121822 100%);
+  border-bottom: 1px solid var(--border-color);
+  padding: 0.75rem 1.25rem;
+}
+
+.brand-title {
+  font-weight: 700;
+  font-size: 1.2rem;
+  letter-spacing: 0.5px;
+  color: #fff;
+  display: flex;
+  align-items: center;
+}
+
+.brand-title i {
+  color: var(--accent-cyan);
+  margin-right: 8px;
+}
+
+/* Status Dots */
+.status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 6px;
+}
+
+.status-dot.online {
+  background-color: var(--accent-green);
+  box-shadow: 0 0 8px var(--accent-green);
+}
+
+.status-dot.offline {
+  background-color: var(--accent-red);
+}
+
+/* Main Container Layout */
+.app-container {
+  display: flex;
+  height: calc(100vh - 65px);
+  overflow: hidden;
+}
+
+.sidebar {
+  width: 340px;
+  background-color: var(--bg-secondary);
+  border-right: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+.main-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  background-color: var(--bg-primary);
+  padding: 1rem;
+}
+
+/* Camera Matrix Grid */
+.camera-grid {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+  flex: 1;
+  min-height: 480px;
+}
+
+.layout-1x1 {
+  grid-template-columns: 1fr;
+}
+
+.layout-2x2 {
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(2, minmax(240px, 1fr));
+}
+
+.layout-3x3 {
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, minmax(180px, 1fr));
+}
+
+.grid-slot {
+  background-color: #0b0e14;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.slot-header {
+  background: rgba(22, 29, 39, 0.9);
+  padding: 6px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border-color);
+  z-index: 2;
+}
+
+.slot-title {
+  display: flex;
+  align-items: center;
+  font-size: 0.85rem;
+  color: #fff;
+}
+
+.slot-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.slot-media {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  position: relative;
+  overflow: hidden;
+  min-height: 200px;
+}
+
+.camera-stream-img,
+.camera-stream-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
+.slot-footer {
+  background: rgba(22, 29, 39, 0.85);
+  padding: 4px 12px;
+  font-size: 0.75rem;
+  display: flex;
+  align-items: center;
+  border-top: 1px solid var(--border-color);
+}
+
+.empty-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 1.5rem;
+  text-align: center;
+}
+
+.empty-icon {
+  font-size: 2.5rem;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+  opacity: 0.5;
+}
+
+/* Camera Card (Sidebar) */
+.camera-card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 10px;
+  margin-bottom: 8px;
+  transition: all 0.2s ease;
+}
+
+.camera-card:hover {
+  border-color: var(--accent-blue);
+  transform: translateY(-1px);
+}
+
+.camera-card.is-fav {
+  border-left: 3px solid #ffca28;
+}
+
+.camera-card-actions {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  display: flex;
+  gap: 4px;
+}
+
+/* Scanner Radar Effect */
+.scanner-card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 14px;
+  margin-bottom: 1rem;
+}
+
+.btn-icon {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 3px 6px;
+  font-size: 0.85rem;
+  border-radius: 4px;
+}
+
+.btn-icon:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.btn-icon.star-btn.active {
+  color: #ffca28;
+}
+
+.btn-link-action {
+  background: none;
+  border: none;
+  color: var(--accent-cyan);
+  cursor: pointer;
+  padding: 0;
+  font-size: 0.75rem;
+}
+
+.btn-xs {
+  padding: 0.15rem 0.45rem;
+  font-size: 0.72rem;
+  border-radius: 4px;
+}
+
+/* Modals */
+.modal-content {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  color: var(--text-main);
+}
+
+.modal-header, .modal-footer {
+  border-color: var(--border-color);
+}
+
+.form-control {
+  background-color: #121822;
+  border: 1px solid var(--border-color);
+  color: #fff;
+}
+
+.form-control:focus {
+  background-color: #151e2b;
+  border-color: var(--accent-blue);
+  color: #fff;
+  box-shadow: 0 0 0 0.2rem rgba(0, 132, 255, 0.25);
+}
+
+/* Banner Alert */
+.bridge-alert-banner {
+  background: rgba(255, 145, 0, 0.12);
+  border: 1px solid var(--accent-orange);
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+::-webkit-scrollbar-thumb {
+  background: #273447;
+  border-radius: 3px;
+}
+
+@media (max-width: 991px) {
+  .app-container {
+    flex-direction: column;
+    height: auto;
+  }
+  .sidebar {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--border-color);
+    max-height: 380px;
+  }
+  .layout-2x2, .layout-3x3 {
+    grid-template-columns: 1fr;
+  }
+}
