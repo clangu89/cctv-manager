@@ -236,27 +236,40 @@ class CameraPlayerManager {
     const mediaSlot = document.getElementById(`media-slot-${slotIndex}`);
     if (!mediaSlot || !camera) return;
 
+    const isLocalMachine = (camera.ip === '127.0.0.1' || camera.ip === 'localhost');
+
     mediaSlot.innerHTML = `
       <div class="empty-slot p-3 text-center">
         <div class="text-danger mb-2"><i class="fas fa-exclamation-circle fa-2x"></i></div>
         <h6 class="text-danger font-weight-bold mb-1">ภาพสดไม่แสดง (Stream Offline)</h6>
         <div class="small text-muted mb-2">
-          ไม่สามารถดึงภาพจาก <strong>${camera.ip || 'กล้อง'}</strong> (พอร์ต 554 ไม่ตอบสนอง)
+          ไม่สามารถเชื่อมต่อ <strong>${camera.name || camera.ip}</strong> (${camera.ip})
         </div>
-        <div id="diag-box-${slotIndex}" class="small alert alert-secondary p-2 mb-2 text-left" style="display:none; font-size:11px;"></div>
-        <div class="btn-group btn-group-sm">
+        <div id="diag-box-${slotIndex}" class="small alert alert-secondary p-2 mb-2 text-left" style="font-size:11px;">
+          <i class="fas fa-spinner fa-spin"></i> กำลังตรวจสอบสัญญาณเครือข่ายและรหัสผ่านกล้อง...
+        </div>
+        <div class="btn-group btn-group-sm flex-wrap justify-content-center">
+          <button class="btn btn-primary" onclick="app.openEditCameraModal('${camera.id}')">
+            <i class="fas fa-key"></i> ใส่ Username / Password กล้อง
+          </button>
           <button class="btn btn-outline-info" onclick="app.diagnoseSlot(${slotIndex})">
-            <i class="fas fa-stethoscope"></i> ตรวจสอบสาเหตุ
+            <i class="fas fa-sync"></i> ตรวจสอบอีกครั้ง
           </button>
-          <button class="btn btn-warning" onclick="app.switchToWebcam('${camera.id}', ${slotIndex})" title="หากเครื่องนี้คือโน้ตบุ๊กของคุณ">
-            <i class="fas fa-video"></i> สลับเป็นกล้องโน้ตบุ๊ก
-          </button>
-          <button class="btn btn-outline-secondary" onclick="app.openEditCameraModal('${camera.id}')">
-            <i class="fas fa-cog"></i> แก้ไข IP
-          </button>
+          ${isLocalMachine ? `
+            <button class="btn btn-warning" onclick="app.switchToWebcam('${camera.id}', ${slotIndex})" title="หากเครื่องนี้คือโน้ตบุ๊กของคุณ">
+              <i class="fas fa-video"></i> สลับเป็นกล้องโน้ตบุ๊ก
+            </button>
+          ` : ''}
         </div>
       </div>
     `;
+
+    // สั่งตรวจสอบสาเหตุจริงทันทีอัตโนมัติ
+    setTimeout(() => {
+      if (window.app && typeof window.app.diagnoseSlot === 'function') {
+        window.app.diagnoseSlot(slotIndex);
+      }
+    }, 150);
   }
 
   startSnapshotPolling(slotIndex, url) {

@@ -21,6 +21,9 @@ const MAC_VENDORS = {
   '3C:EF:8C': 'Dahua', 'A0:BD:1D': 'Dahua', 'E0:50:8B': 'Dahua',
   '90:02:A9': 'Dahua', '4C:11:BF': 'Dahua', 'B4:A3:82': 'Dahua',
   // TP-Link (Tapo / Kasa)
+  'B0:19:21': 'TP-Link Tapo', 'B0:95:75': 'TP-Link Tapo', '18:D6:C7': 'TP-Link Tapo',
+  'D8:47:32': 'TP-Link Tapo', 'EC:08:6B': 'TP-Link Tapo', '54:AF:97': 'TP-Link Tapo',
+  'A8:42:A1': 'TP-Link Tapo', 'CC:32:E5': 'TP-Link Tapo',
   '50:C7:BF': 'TP-Link Tapo', 'AC:84:C6': 'TP-Link Tapo', 'B0:4E:26': 'TP-Link Tapo',
   '00:31:92': 'TP-Link Tapo', '30:DE:4B': 'TP-Link Tapo', '70:4F:57': 'TP-Link Tapo',
   // Uniview
@@ -250,9 +253,9 @@ function probeStreamConnection(streamUrl, timeoutMs = 4000) {
         if (stderr.includes('Connection refused')) {
           cleanError = 'Connection refused: ปลายทางไม่ได้เปิดพอร์ต RTSP หรือ IP ไม่ถูกต้อง';
         } else if (stderr.includes('401 Unauthorized') || stderr.includes('Authentication failed')) {
-          cleanError = '401 Unauthorized: ชื่อผู้ใช้หรือรหัสผ่านของกล้องไม่ถูกต้อง';
+          cleanError = '401 Unauthorized: รหัสผ่านไม่ถูกต้อง (สำหรับกล้อง Tapo ต้องใช้ "Camera Account" ที่สร้างในแอป Tapo ไม่ใช่อีเมลบัญชี TP-Link)';
         } else if (stderr.includes('404 Not Found') || stderr.includes('Invalid data')) {
-          cleanError = 'Stream path ไม่ถูกต้องสำหรับยี่ห้อกล้องนี้';
+          cleanError = 'Stream path ไม่ถูกต้อง (สำหรับ Tapo แนะนำใช้ /stream1 หรือ /stream2)';
         } else if (stderr.includes('No route to host') || stderr.includes('Network is unreachable')) {
           cleanError = 'ไม่พบอุปกรณ์ที่ IP นี้ในวงแลน';
         }

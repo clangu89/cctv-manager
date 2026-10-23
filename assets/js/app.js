@@ -279,7 +279,26 @@ class CCTVApp {
     const dev = this.discoveredDevices[index];
     if (!dev) return;
 
-    const brandKey = this.detectBrandKey(dev.brand);
+    let brandKey = this.detectBrandKey(dev.brand);
+    if (dev.mac && dev.mac.toUpperCase().startsWith('B0:19:21')) brandKey = 'tapo';
+    if (dev.ip === '192.168.1.3') brandKey = 'tapo';
+
+    // ถ้าเป็นกล้อง CCTV ที่ต้องมีรหัสผ่าน ให้เปิด Modal เพื่อให้กรอก Username/Password
+    if (dev.isCctv && brandKey !== 'notebook_webcam') {
+      const brandInfo = APP_CONFIG.BRAND_TEMPLATES[brandKey] || APP_CONFIG.BRAND_TEMPLATES['tapo'];
+      this.openAddCameraModal({
+        name: brandKey === 'tapo' ? `กล้อง Tapo (${dev.ip})` : `${brandInfo.name} (${dev.ip})`,
+        ip: dev.ip,
+        brand: brandKey,
+        port: dev.openPorts.includes(80) ? 80 : 80,
+        rtspPort: 554,
+        username: '',
+        password: ''
+      });
+      this.showToast(`กรุณากรอก Username/Password ของกล้อง ${dev.ip} ก่อนบันทึกนะคะ`, 'info');
+      return;
+    }
+
     const brandInfo = APP_CONFIG.BRAND_TEMPLATES[brandKey] || APP_CONFIG.BRAND_TEMPLATES['hikvision'];
 
     const newCam = {
@@ -357,14 +376,19 @@ class CCTVApp {
     const cam = this.cameras.find(c => c.id === id);
     if (!cam) return;
 
+    let brandKey = this.detectBrandKey(cam.brand);
+    if (cam.ip === '192.168.1.3' || (cam.rtspUrl && cam.rtspUrl.includes('stream1'))) {
+      brandKey = 'tapo';
+    }
+
     document.getElementById('cameraModalTitle').innerText = `แก้ไขโปรไฟล์: ${cam.name}`;
     document.getElementById('cameraIdInput').value = cam.id;
     document.getElementById('camNameInput').value = cam.name || '';
-    document.getElementById('camBrandSelect').value = this.detectBrandKey(cam.brand);
+    document.getElementById('camBrandSelect').value = brandKey;
     document.getElementById('camIpInput').value = cam.ip || '';
     document.getElementById('camPortInput').value = cam.port || '80';
     document.getElementById('camRtspPortInput').value = cam.rtspPort || '554';
-    document.getElementById('camUserInput').value = cam.username || 'admin';
+    document.getElementById('camUserInput').value = cam.username || '';
     document.getElementById('camPassInput').value = cam.password || '';
     document.getElementById('camChannelInput').value = cam.channel || '1';
     document.getElementById('camStreamSelect').value = cam.streamType || 'main';
@@ -372,6 +396,7 @@ class CCTVApp {
     document.getElementById('camRtspUrlInput').value = cam.rtspUrl || '';
     document.getElementById('camHttpUrlInput').value = cam.httpUrl || '';
 
+    this.updateGeneratedUrls();
     $('#cameraModal').modal('show');
   }
 
@@ -387,6 +412,12 @@ class CCTVApp {
     const brand = document.getElementById('camBrandSelect').value;
     const template = APP_CONFIG.BRAND_TEMPLATES[brand];
     if (!template) return;
+
+    // แสดงคำแนะนำการตั้งค่าบัญชีกล้อง Tapo
+    const tapoBanner = document.getElementById('tapoGuideBanner');
+    if (tapoBanner) {
+      tapoBanner.style.display = (brand === 'tapo') ? 'block' : 'none';
+    }
 
     if (brand === 'notebook_webcam') {
       const ipInput = document.getElementById('camIpInput');
@@ -499,7 +530,20 @@ class CCTVApp {
         setTimeout(() => window.playerManager.renderSlot(slotIndex), 1000);
       } else {
         box.className = 'small alert alert-danger p-2 mb-2 text-left';
-        box.innerHTML = `<strong>สาเหตุ:</strong> ${data.error}<br><span class="text-warning">👉 หาก IP นี้คือคอมพิวเตอร์ของคุณเอง ให้กดปุ่ม <strong>"สลับเป็นกล้องโน้ตบุ๊ก"</strong> ด้านล่าง</span>`;
+        if (data.error && (data.error.includes('401') || data.error.includes('Unauthorized') || data.error.includes('Authentication') || data.error.includes('รหัสผ่าน'))) {
+          box.innerHTML = `
+            <strong><i class="fas fa-lock text-warning"></i> ${data.error}</strong>
+            <div class="mt-2 text-light" style="font-size:11px;">
+              💡 <strong>วิธีดูรหัสผ่านกล้อง Tapo:</strong><br>
+              1. เปิดแอป <strong>Tapo</strong> ในมือถือ<br>
+              2. กดเลือกกล้อง &gt; ไอคอนฟันเฟือง ⚙️ (มุมขวาบน)<br>
+              3. เลือก <strong>การตั้งค่าขั้นสูง (Advanced Settings)</strong> &gt; <strong>บัญชีผู้ใช้กล้อง (Camera Account)</strong><br>
+              4. ดูหรือสร้าง Username และ Password แล้วกดปุ่มสีน้ำเงินด้านล่างเพื่อนำมากรอกค่ะ
+            </div>
+          `;
+        } else {
+          box.innerHTML = `<strong>สาเหตุ:</strong> ${data.error}`;
+        }
       }
     } catch (e) {
       box.className = 'small alert alert-warning p-2 mb-2 text-left';
