@@ -1,5 +1,6 @@
 /**
  * CCTV Manager - Camera Player & Matrix Viewer
+ * Version: 1.2.0 (Low-Latency & Explicit Socket Abort)
  */
 
 class CameraPlayerManager {
@@ -12,9 +13,13 @@ class CameraPlayerManager {
   }
 
   setLayout(layout) {
+    this.stopAll();
     this.layout = layout;
     localStorage.setItem(APP_CONFIG.STORAGE_KEYS.LAYOUT, layout);
     this.renderMatrix();
+    if (window.app && typeof window.app.autoPopulateGrid === 'function') {
+      window.app.autoPopulateGrid();
+    }
   }
 
   getSlotCount() {
@@ -88,11 +93,19 @@ class CameraPlayerManager {
       streamNotice = '<span class="badge badge-success"><i class="fas fa-laptop"></i> Notebook Webcam</span>';
       this.initWebcamStream(slotIndex);
     }
-    // 2. โหมดกล้อง RTSP ผ่าน Local Bridge Relay
+    // 2. โหมดกล้อง RTSP ผ่าน Local Bridge Relay (Low-Latency Stream Hub)
     else if (camera.rtspUrl && bridgeAvailable) {
-      const streamSrc = `${bridgeUrl}/stream.mjpeg?rtsp=${encodeURIComponent(camera.rtspUrl)}&_t=${Date.now()}`;
+      const scaleParam = (this.layout === '3x3') ? 640 : 960;
+      const fpsParam = (camera.streamType === 'sub') ? 25 : 20;
+      const streamSrc = `${bridgeUrl}/stream.mjpeg?rtsp=${encodeURIComponent(camera.rtspUrl)}&scale=${scaleParam}&fps=${fpsParam}&q=5&slot=${slotIndex}`;
       mediaContent = `<img id="stream-img-${slotIndex}" src="${streamSrc}" class="camera-stream-img" alt="${camera.name}" onload="playerManager.handleStreamLoaded(${slotIndex})" onerror="playerManager.handleStreamError(${slotIndex})" />`;
-      streamNotice = `<span id="badge-slot-${slotIndex}" class="badge badge-info"><i class="fas fa-bolt"></i> Bridge Relay</span>`;
+      
+      const isSub = (camera.streamType === 'sub' || (camera.rtspUrl && camera.rtspUrl.includes('stream2')));
+      streamNotice = `
+        <span id="badge-slot-${slotIndex}" class="badge ${isSub ? 'badge-success' : 'badge-info'}">
+          <i class="fas fa-bolt"></i> ${isSub ? 'SD ลื่นไหล' : 'HD คมชัด'}
+        </span>
+      `;
       
       // ตั้ง Watchdog ตรวจสอบว่ามีภาพเข้ามาจริงภายใน 4 วินาทีหรือไม่
       this.startStreamWatchdog(slotIndex, camera);
@@ -136,6 +149,8 @@ class CameraPlayerManager {
       }
     }
 
+    const isSubStream = (camera.streamType === 'sub' || (camera.rtspUrl && (camera.rtspUrl.includes('stream2') || camera.rtspUrl.includes('102') || camera.rtspUrl.includes('subtype=1'))));
+
     slotEl.innerHTML = `
       <div class="slot-header">
         <div class="slot-title">
@@ -145,6 +160,11 @@ class CameraPlayerManager {
           ${streamNotice}
         </div>
         <div class="slot-actions">
+          ${camera.rtspUrl ? `
+            <button class="btn btn-xs ${isSubStream ? 'btn-success' : 'btn-outline-info'} mr-1" onclick="app.toggleSlotQuality(${slotIndex})" title="สลับความละเอียด HD / SD (ลื่นไหล)">
+              ${isSubStream ? '<i class="fas fa-feather-alt"></i> SD ลื่น' : '<i class="fas fa-film"></i> HD'}
+            </button>
+          ` : ''}
           <button class="btn-icon" onclick="app.captureSlotSnapshot(${slotIndex})" title="บันทึกภาพนิ่ง"><i class="fas fa-camera"></i></button>
           <button class="btn-icon" onclick="app.toggleSlotFullscreen(${slotIndex})" title="เต็มจอ"><i class="fas fa-expand"></i></button>
           <button class="btn-icon" onclick="playerManager.removeCameraFromSlot(${slotIndex})" title="ปิดช่องนี้"><i class="fas fa-times"></i></button>
@@ -188,11 +208,10 @@ class CameraPlayerManager {
       }
     } catch (err) {
       console.warn('Webcam getUserMedia failed, trying bridge:', err);
-      // Fallback ไปใช้ Local Bridge DirectShow
       const bridgeUrl = (window.networkScanner && window.networkScanner.bridgeUrl) || APP_CONFIG.DEFAULT_LOCAL_BRIDGE_URL;
       const mediaSlot = document.getElementById(`media-slot-${slotIndex}`);
       if (mediaSlot) {
-        mediaSlot.innerHTML = `<img src="${bridgeUrl}/stream.mjpeg?type=webcam&_t=${Date.now()}" class="camera-stream-img" alt="Notebook Webcam" />`;
+        mediaSlot.innerHTML = `<img src="${bridgeUrl}/stream.mjpeg?type=webcam&scale=960&fps=20&q=5&_t=${Date.now()}" class="camera-stream-img" alt="Notebook Webcam" />`;
       }
     }
   }
@@ -201,7 +220,6 @@ class CameraPlayerManager {
     if (this.streamWatchdogs[slotIndex]) clearTimeout(this.streamWatchdogs[slotIndex]);
     this.streamWatchdogs[slotIndex] = setTimeout(() => {
       const img = document.getElementById(`stream-img-${slotIndex}`);
-      // ถ้าภาพยังไม่โหลด หรือความกว้างเป็น 0 แปลว่าไม่ได้รับเฟรม
       if (img && (!img.complete || img.naturalWidth === 0)) {
         this.handleStreamError(slotIndex);
       }
@@ -264,7 +282,6 @@ class CameraPlayerManager {
       </div>
     `;
 
-    // สั่งตรวจสอบสาเหตุจริงทันทีอัตโนมัติ
     setTimeout(() => {
       if (window.app && typeof window.app.diagnoseSlot === 'function') {
         window.app.diagnoseSlot(slotIndex);
@@ -283,6 +300,7 @@ class CameraPlayerManager {
     }, 2000);
   }
 
+  // สั่งตัดการเชื่อมต่อ Socket และเคลียร์ Memory ทันที
   stopSlot(slotIndex) {
     if (this.snapshotTimers[slotIndex]) {
       clearInterval(this.snapshotTimers[slotIndex]);
@@ -293,14 +311,39 @@ class CameraPlayerManager {
       delete this.streamWatchdogs[slotIndex];
     }
     if (this.webcamStreams[slotIndex]) {
-      this.webcamStreams[slotIndex].getTracks().forEach(track => track.stop());
+      try {
+        this.webcamStreams[slotIndex].getTracks().forEach(track => track.stop());
+      } catch (e) {}
       delete this.webcamStreams[slotIndex];
+    }
+
+    // ตัดการเชื่อมต่อ HTTP Multipart Stream ทันทีเพื่อไม่ให้ค้างโปรเซส FFmpeg
+    const slotEl = document.getElementById(`slot-${slotIndex}`);
+    if (slotEl) {
+      const img = slotEl.querySelector('img.camera-stream-img');
+      if (img) {
+        img.onload = null;
+        img.onerror = null;
+        img.removeAttribute('src');
+        img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+      }
+      const vid = slotEl.querySelector('video');
+      if (vid) {
+        try {
+          vid.pause();
+          vid.removeAttribute('src');
+          vid.load();
+        } catch (e) {}
+      }
     }
   }
 
   stopAll() {
-    Object.keys(this.snapshotTimers).forEach(slotIndex => this.stopSlot(slotIndex));
-    Object.keys(this.webcamStreams).forEach(slotIndex => this.stopSlot(slotIndex));
+    const count = this.getSlotCount();
+    for (let i = 0; i < count; i++) {
+      this.stopSlot(i);
+    }
+    this.activeSlots = {};
   }
 }
 

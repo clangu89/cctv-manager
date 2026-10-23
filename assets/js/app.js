@@ -567,6 +567,37 @@ class CCTVApp {
     this.showToast('สลับโปรไฟล์เป็นกล้องหน้าโน้ตบุ๊กเรียบร้อยแล้ว ภาพสดพร้อมทำงานค่ะ', 'success');
   }
 
+  // สลับความละเอียด HD / SD ลื่นไหลของช่อง
+  async toggleSlotQuality(slotIndex) {
+    const cam = window.playerManager.activeSlots[slotIndex];
+    if (!cam || !cam.rtspUrl) return;
+
+    const brandKey = this.detectBrandKey(cam.brand);
+    const template = APP_CONFIG.BRAND_TEMPLATES[brandKey];
+
+    // สลับ streamType
+    cam.streamType = (cam.streamType === 'sub') ? 'main' : 'sub';
+
+    // อัปเดต rtspUrl
+    if (template && template.buildRtspUrl) {
+      cam.rtspUrl = template.buildRtspUrl(cam);
+    } else {
+      if (cam.rtspUrl.includes('stream1')) {
+        cam.rtspUrl = cam.rtspUrl.replace('stream1', 'stream2');
+      } else if (cam.rtspUrl.includes('stream2')) {
+        cam.rtspUrl = cam.rtspUrl.replace('stream2', 'stream1');
+      } else if (cam.rtspUrl.includes('subtype=0')) {
+        cam.rtspUrl = cam.rtspUrl.replace('subtype=0', 'subtype=1');
+      } else if (cam.rtspUrl.includes('subtype=1')) {
+        cam.rtspUrl = cam.rtspUrl.replace('subtype=1', 'subtype=0');
+      }
+    }
+
+    await window.gasApi.saveCamera(cam);
+    window.playerManager.assignCameraToSlot(slotIndex, cam);
+    this.showToast(`สลับเป็นโหมด ${cam.streamType === 'sub' ? 'SD (ลื่นไหล)' : 'HD (คมชัด)'} เรียบร้อยแล้ว`, 'info');
+  }
+
   async saveCameraFromModal() {
     const id = document.getElementById('cameraIdInput').value;
     const name = document.getElementById('camNameInput').value.trim() || 'Camera';
@@ -733,3 +764,8 @@ class CCTVApp {
 
 window.app = new CCTVApp();
 document.addEventListener('DOMContentLoaded', () => window.app.init());
+window.addEventListener('beforeunload', () => {
+  if (window.playerManager) {
+    window.playerManager.stopAll();
+  }
+});
